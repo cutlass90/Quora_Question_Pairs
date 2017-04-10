@@ -20,7 +20,8 @@ class SiameseRNN(object):
         self.create_graph()
         if do_train: self.create_optimizer_graph(self.cost)
         sub_d = len(os.listdir('summary'))
-        self.train_writer = tf.summary.FileWriter(logdir = 'summary/'+str(sub_d))
+        self.train_writer = tf.summary.FileWriter(logdir = 'summary/train/'+str(sub_d))
+        self.test_writer = tf.summary.FileWriter(logdir = 'summary/test/'+str(sub_d))
         self.merged = tf.summary.merge_all()
         
         init_op = tf.global_variables_initializer()
@@ -144,8 +145,19 @@ class SiameseRNN(object):
         self.L2_loss = self.weight_decay*sum([tf.reduce_mean(tf.square(var))
             for var in tf.trainable_variables()])
 
+        preds_ = tf.cast(tf.greater(preds, 0.5), tf.float32)
+        print(preds_)
+        tp = tf.reduce_sum(preds_*targets)
+        fp = tf.reduce_sum((1-targets)*preds_)
+        fn = tf.reduce_sum((1-preds_)*targets)
+        precission = tp/(tp+fp+1e-5)
+        recall = tp/(tp+fn+1e-5)
+        self.pr_re = [precission, recall]
+
         tf.summary.scalar('cross_entropy', self.cross_entropy)
         tf.summary.scalar('L2 loss', self.L2_loss)
+        tf.summary.scalar('precission', precission)
+        tf.summary.scalar('recall', recall)
         
         return self.cross_entropy + self.L2_loss
     
@@ -156,8 +168,6 @@ class SiameseRNN(object):
             optimizer = tf.train.AdamOptimizer(self.learn_rate)
             self.train = optimizer.minimize(cost)
 
-
-        
     ############################################################################  
     def save_model(self, path = 'beat_detector_model', step = None):
         p = self.saver.save(self.sess, path, global_step = step)
@@ -185,7 +195,7 @@ class SiameseRNN(object):
         start_time = time.time()
         
         for current_iter in tqdm(range(n_iter)):
-            batch = data_loader.next_batch(batch_size, shuffle=True,
+            batch = data_loader.next_train_batch(batch_size, shuffle=True,
                 endless_batch=True)
             feedDict = {self.question1 : batch['questions_1'],
                         self.question2 : batch['questions_2'],
@@ -195,9 +205,22 @@ class SiameseRNN(object):
                         self.keep_prob : keep_prob,
                         self.weight_decay : weight_decay,
                         self.learn_rate : learn_rate}
-
-            _, summary = self.sess.run([self.train, self.merged], feed_dict = feedDict)
+            _, summary, _ = self.sess.run([self.train, self.merged, self.pr_re], feed_dict = feedDict)
             self.train_writer.add_summary(summary, current_iter)
+
+
+
+            batch = data_loader.next_test_batch(batch_size, shuffle=True,
+                endless_batch=True)
+            feedDict = {self.question1 : batch['questions_1'],
+                        self.question2 : batch['questions_2'],
+                        self.targets : batch['targets'],
+                        self.seq_lengths1 : batch['seq_lengths_1'],
+                        self.seq_lengths2 : batch['seq_lengths_2'],
+                        self.keep_prob : 1,
+                        self.weight_decay : weight_decay}
+            _, summary, _ = self.sess.run([self.cost, self.merged, self.pr_re], feed_dict = feedDict)
+            self.test_writer.add_summary(summary, current_iter)
 
             if (current_iter+1) % save_model_every_n_iter == 0:
                 self.save_model(path = path_to_model, step = current_iter+1)
@@ -218,7 +241,7 @@ class SiameseRNN(object):
         forward_pass_time = 0
         for current_iter in it.count():
             try:
-                batch = data_loader.next_batch(batch_size, shuffle=False,
+                batch = data_loader.next_train_batch(batch_size, shuffle=False,
                 endless_batch=False)
             except EpochFinished:
                 break

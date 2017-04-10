@@ -4,6 +4,7 @@ import itertools as it
 import random
 
 import pandas as pd
+from sklearn.model_selection import train_test_split
 import numpy as np
 import nltk
 from nltk.corpus import stopwords
@@ -103,13 +104,15 @@ def text_to_wordlist(text, remove_stop_words=True, stem_words=False):
 
 class DataProvider(object):
 
-    def __init__(self, path_to_csv, path_to_w2v):
+    def __init__(self, path_to_csv, path_to_w2v, test_size):
         self.data = pd.read_csv(path_to_csv)
         self.data = self.data.fillna('empty')
+        self.train_data, self.test_data = train_test_split(self.data,
+            test_size=test_size)
         self.w2v_model = KeyedVectors.load_word2vec_format(path_to_w2v, binary=True)
         self.i = 0
         self.n_epochs = 0
-    """
+    
     #---------------------------------------------------------------------------
     def get_batch(self, batch_size):
         """ questions has shape batch_size x max_len x n_features"""
@@ -126,19 +129,47 @@ class DataProvider(object):
 
         batch['targets'] = data['is_duplicate'].as_matrix().astype(np.float32)
         return batch
-    """
+    
     #---------------------------------------------------------------------------
-    def next_batch(self, batch_size, shuffle, endless_batch=True):
+    def next_train_batch(self, batch_size, shuffle, endless_batch=True):
         """ questions has shape batch_size x max_len x n_features"""
         batch = {}
-        data = self.data[self.i*batch_size:(self.i+1)*batch_size]
+        data = self.train_data[self.i*batch_size:(self.i+1)*batch_size]
         if data.shape[0] == 0:
             self.n_epochs += 1
             print('Epoch {0} was finished'.format(self.n_epochs))
             if endless_batch:
                 self.i=0
-                self.data = self.data.sample(frac=1).reset_index(drop=True)
-                data = self.data[self.i*batch_size:(self.i+1)*batch_size]
+                self.train_data = self.train_data.sample(frac=1).reset_index(drop=True)
+                data = self.train_data[self.i*batch_size:(self.i+1)*batch_size]
+            else:
+                raise(EpochFinished())
+        questions, lengths = self.zero_pad(data['question1'])
+        batch['seq_lengths_1'] = lengths.astype(np.int32)
+        batch['questions_1'] = questions.astype(np.float32)
+
+        questions, lengths = self.zero_pad(data['question2'])
+        batch['seq_lengths_2'] = lengths.astype(np.int32)
+        batch['questions_2'] = questions.astype(np.float32)
+        
+        if 'is_duplicate' in data.columns.values:
+            batch['targets'] = data['is_duplicate'].as_matrix().astype(np.float32)
+
+        self.i += 1
+        return batch
+
+        #---------------------------------------------------------------------------
+    def next_test_batch(self, batch_size, shuffle, endless_batch=True):
+        """ questions has shape batch_size x max_len x n_features"""
+        batch = {}
+        data = self.test_data[self.i*batch_size:(self.i+1)*batch_size]
+        if data.shape[0] == 0:
+            self.n_epochs += 1
+            print('Epoch {0} was finished'.format(self.n_epochs))
+            if endless_batch:
+                self.i=0
+                self.test_data = self.test_data.sample(frac=1).reset_index(drop=True)
+                data = self.test_data[self.i*batch_size:(self.i+1)*batch_size]
             else:
                 raise(EpochFinished())
         questions, lengths = self.zero_pad(data['question1'])
