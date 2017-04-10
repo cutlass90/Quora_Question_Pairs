@@ -86,14 +86,14 @@ class SiameseRNN(object):
         with tf.variable_scope(scope):
             # inputs b x h x embedding_size (h is variable value)
             # sequence_length b
-            cell = tf.nn.rnn_cell.GRUCell(self.n_hidden_RNN, activation=tf.nn.elu)
+            cell = tf.contrib.rnn.GRUCell(self.n_hidden_RNN, activation=tf.nn.elu)
 
-            fw_cell = tf.nn.rnn_cell.MultiRNNCell([cell]*n_layers)
-            fw_cell = tf.nn.rnn_cell.DropoutWrapper(fw_cell,
+            fw_cell = tf.contrib.rnn.MultiRNNCell([cell]*n_layers)
+            fw_cell = tf.contrib.rnn.DropoutWrapper(fw_cell,
                 output_keep_prob=self.keep_prob)
 
-            bw_cell = tf.nn.rnn_cell.MultiRNNCell([cell]*n_layers)
-            bw_cell = tf.nn.rnn_cell.DropoutWrapper(bw_cell,
+            bw_cell = tf.contrib.rnn.MultiRNNCell([cell]*n_layers)
+            bw_cell = tf.contrib.rnn.DropoutWrapper(bw_cell,
                 output_keep_prob=self.keep_prob)
 
             outputs, states = tf.nn.bidirectional_dynamic_rnn(cell_fw=fw_cell,

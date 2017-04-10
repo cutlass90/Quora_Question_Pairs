@@ -109,7 +109,7 @@ class DataProvider(object):
         self.w2v_model = KeyedVectors.load_word2vec_format(path_to_w2v, binary=True)
         self.i = 0
         self.n_epochs = 0
-
+    """
     #---------------------------------------------------------------------------
     def get_batch(self, batch_size):
         """ questions has shape batch_size x max_len x n_features"""
@@ -126,7 +126,7 @@ class DataProvider(object):
 
         batch['targets'] = data['is_duplicate'].as_matrix().astype(np.float32)
         return batch
-
+    """
     #---------------------------------------------------------------------------
     def next_batch(self, batch_size, shuffle, endless_batch=True):
         """ questions has shape batch_size x max_len x n_features"""
