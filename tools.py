@@ -102,19 +102,19 @@ def text_to_wordlist(text, remove_stop_words=True, stem_words=False):
     # Return a list of words
     return(text)
 
-class DataProvider(object):
 
-    def __init__(self, path_to_csv, path_to_w2v, test_size):
-        self.data = pd.read_csv(path_to_csv)
-        self.data = self.data.fillna('empty')
-        self.train_data, self.test_data = train_test_split(self.data,
-            test_size=test_size)
-        self.w2v_model = KeyedVectors.load_word2vec_format(path_to_w2v, binary=True)
-        self.i = 0
-        self.n_epochs = 0
-    
+
+
+class BatchProvider(object):
+
     #---------------------------------------------------------------------------
-    def get_batch(self, batch_size):
+    def __init__(self, data, loader_class):
+        self.data = data
+        self.loader_class = loader_class
+        self.i = 0
+
+    #---------------------------------------------------------------------------
+    def sample_batch(self, batch_size):
         """ questions has shape batch_size x max_len x n_features"""
         batch = {}
         data = self.data.sample(batch_size)
@@ -127,51 +127,23 @@ class DataProvider(object):
         batch['seq_lengths_2'] = lengths.astype(np.int32)
         batch['questions_2'] = questions.astype(np.float32)
 
-        batch['targets'] = data['is_duplicate'].as_matrix().astype(np.float32)
+        if 'is_duplicate' in self.data.columns.values:
+            batch['targets'] = data['is_duplicate'].as_matrix().astype(np.float32)
         return batch
-    
+
     #---------------------------------------------------------------------------
-    def next_train_batch(self, batch_size, shuffle, endless_batch=True):
+    def next_batch(self, batch_size):
         """ questions has shape batch_size x max_len x n_features"""
-        batch = {}
-        data = self.train_data[self.i*batch_size:(self.i+1)*batch_size]
+        data = self.data[self.i:self.i+batch_size]
         if data.shape[0] == 0:
-            self.n_epochs += 1
-            print('Epoch {0} was finished'.format(self.n_epochs))
-            if endless_batch:
-                self.i=0
-                self.train_data = self.train_data.sample(frac=1).reset_index(drop=True)
-                data = self.train_data[self.i*batch_size:(self.i+1)*batch_size]
-            else:
-                raise(EpochFinished())
-        questions, lengths = self.zero_pad(data['question1'])
-        batch['seq_lengths_1'] = lengths.astype(np.int32)
-        batch['questions_1'] = questions.astype(np.float32)
-
-        questions, lengths = self.zero_pad(data['question2'])
-        batch['seq_lengths_2'] = lengths.astype(np.int32)
-        batch['questions_2'] = questions.astype(np.float32)
-        
-        if 'is_duplicate' in data.columns.values:
-            batch['targets'] = data['is_duplicate'].as_matrix().astype(np.float32)
-
-        self.i += 1
+            raise(EpochFinished())
+        batch = self.process_batch(data)
+        self.i += batch_size
         return batch
 
-        #---------------------------------------------------------------------------
-    def next_test_batch(self, batch_size, shuffle, endless_batch=True):
-        """ questions has shape batch_size x max_len x n_features"""
+    #---------------------------------------------------------------------------
+    def process_batch(self, data):
         batch = {}
-        data = self.test_data[self.i*batch_size:(self.i+1)*batch_size]
-        if data.shape[0] == 0:
-            self.n_epochs += 1
-            print('Epoch {0} was finished'.format(self.n_epochs))
-            if endless_batch:
-                self.i=0
-                self.test_data = self.test_data.sample(frac=1).reset_index(drop=True)
-                data = self.test_data[self.i*batch_size:(self.i+1)*batch_size]
-            else:
-                raise(EpochFinished())
         questions, lengths = self.zero_pad(data['question1'])
         batch['seq_lengths_1'] = lengths.astype(np.int32)
         batch['questions_1'] = questions.astype(np.float32)
@@ -183,7 +155,6 @@ class DataProvider(object):
         if 'is_duplicate' in data.columns.values:
             batch['targets'] = data['is_duplicate'].as_matrix().astype(np.float32)
 
-        self.i += 1
         return batch
 
     #---------------------------------------------------------------------------
@@ -201,14 +172,48 @@ class DataProvider(object):
     def text_to_vectorlist(self, text):
         text = text_to_wordlist(text)
         list_of_w = text.split(' ')
-        list_of_v = [self.w2v_model.word_vec(word, use_norm=False)\
-            for word in list_of_w if word in self.w2v_model.vocab]
+        list_of_v = [self.loader_class.w2v_model.word_vec(word, use_norm=False)\
+            for word in list_of_w if word in self.loader_class.w2v_model.vocab]
         return list_of_v
+
+
+
+class DataProvider(object):
+
+    def __init__(self, path_to_csv, path_to_w2v, test_size):
+        self.data = pd.read_csv(path_to_csv)
+        self.data = self.data.fillna('empty')
+        if test_size>0:
+            self.train_data, self.test_data = train_test_split(self.data,
+            test_size=test_size, random_state=123)
+            self.train_data.reset_index(drop=True, inplace=True)
+            self.test_data.reset_index(drop=True, inplace=True)
+        else:
+            self.train_data = self.data
+            self.test_data = np.empty([0])
+        print('train_data', self.train_data.shape)
+        print('test_data', self.test_data.shape)
+        self.w2v_model = KeyedVectors.load_word2vec_format(path_to_w2v, binary=True)
+
+        self.train = BatchProvider(data=self.train_data, loader_class=self)
+        if test_size > 0:
+            self.test = BatchProvider(data=self.test_data, loader_class=self)
+
+
 
 #-------------------------------------------------------------------------------
 if __name__ == '__main__':
-    data_provider = DataProvider(path_to_csv='dataset/train.csv',
-        path_to_w2v='/media/nazar/F64CA6774CA631F3/GoogleNews-vectors-negative300.bin')
+    data_provider = DataProvider(path_to_csv='dataset/temp.csv',
+        path_to_w2v='~/GoogleNews-vectors-negative300.bin',
+        test_size=0.2) 
 
-    for _ in range(10):
-        batch = data_provider.next_batch(batch_size=3, shuffle=True, endless_batch=True)
+    for i in range(10):
+        print(i)
+        data_provider.train.sample_batch(16)
+        data_provider.test.sample_batch(16)
+
+    for i in range(10):
+        print(i)
+        data_provider.train.next_batch(16)
+        data_provider.test.next_batch(16)
+

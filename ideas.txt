@@ -1,3 +1,0 @@
-Wasserstein loss
-Embeddings разного размера
-hidden state RNN разного размера

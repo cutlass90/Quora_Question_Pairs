@@ -1,11 +1,13 @@
 import os
 import time
 import itertools as it
+import math
 
 import tensorflow as tf
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from sklearn.metrics import log_loss
 
 import tools
 from tools import EpochFinished
@@ -20,8 +22,8 @@ class SiameseRNN(object):
         self.create_graph()
         if do_train: self.create_optimizer_graph(self.cost)
         sub_d = len(os.listdir('summary'))
-        self.train_writer = tf.summary.FileWriter(logdir = 'summary/train/'+str(sub_d))
-        self.test_writer = tf.summary.FileWriter(logdir = 'summary/test/'+str(sub_d))
+        self.train_writer = tf.summary.FileWriter(logdir = 'summary/'+str(sub_d)+'/train/')
+        self.test_writer = tf.summary.FileWriter(logdir = 'summary/'+str(sub_d)+'/test/')
         self.merged = tf.summary.merge_all()
         
         init_op = tf.global_variables_initializer()
@@ -87,7 +89,7 @@ class SiameseRNN(object):
         with tf.variable_scope(scope):
             # inputs b x h x embedding_size (h is variable value)
             # sequence_length b
-            cell = tf.contrib.rnn.GRUCell(self.n_hidden_RNN, activation=tf.nn.elu)
+            cell = tf.contrib.rnn.GRUCell(self.n_hidden_RNN)
 
             fw_cell = tf.contrib.rnn.MultiRNNCell([cell]*n_layers)
             fw_cell = tf.contrib.rnn.DropoutWrapper(fw_cell,
@@ -146,7 +148,6 @@ class SiameseRNN(object):
             for var in tf.trainable_variables()])
 
         preds_ = tf.cast(tf.greater(preds, 0.5), tf.float32)
-        print(preds_)
         tp = tf.reduce_sum(preds_*targets)
         fp = tf.reduce_sum((1-targets)*preds_)
         fn = tf.reduce_sum((1-preds_)*targets)
@@ -184,8 +185,10 @@ class SiameseRNN(object):
         print("Model restored from file %s" % load_path)
 
     ############################################################################
-    def train_(self, data_loader, keep_prob, weight_decay, learn_rate, batch_size,
-        n_iter=10000, save_model_every_n_iter=1000, path_to_model='classifier'):
+    def train_(self, data_loader, keep_prob, weight_decay, learn_rate_start,
+        learn_rate_end, batch_size, n_iter, save_model_every_n_iter=1000,
+        path_to_model='classifier'):
+
         print('\t\t\t\t----==== Training ====----')
         try:
             self.load_model(os.path.dirname(path_to_model))
@@ -193,10 +196,11 @@ class SiameseRNN(object):
             print('Can not load model {0}, starting new train'.format(path_to_model))
             
         start_time = time.time()
-        
+        b = math.log(learn_rate_start/learn_rate_end, n_iter) 
+        a = learn_rate_start*math.pow(1, b)
         for current_iter in tqdm(range(n_iter)):
-            batch = data_loader.next_train_batch(batch_size, shuffle=True,
-                endless_batch=True)
+            learn_rate = a/math.pow((current_iter+1), b)
+            batch = data_loader.train.sample_batch(batch_size)
             feedDict = {self.question1 : batch['questions_1'],
                         self.question2 : batch['questions_2'],
                         self.targets : batch['targets'],
@@ -205,13 +209,12 @@ class SiameseRNN(object):
                         self.keep_prob : keep_prob,
                         self.weight_decay : weight_decay,
                         self.learn_rate : learn_rate}
-            _, summary, _ = self.sess.run([self.train, self.merged, self.pr_re], feed_dict = feedDict)
+            _, summary, _ = self.sess.run([self.train, self.merged, self.pr_re],
+                feed_dict = feedDict)
             self.train_writer.add_summary(summary, current_iter)
 
 
-
-            batch = data_loader.next_test_batch(batch_size, shuffle=True,
-                endless_batch=True)
+            batch = data_loader.test.sample_batch(batch_size)
             feedDict = {self.question1 : batch['questions_1'],
                         self.question2 : batch['questions_2'],
                         self.targets : batch['targets'],
@@ -219,7 +222,8 @@ class SiameseRNN(object):
                         self.seq_lengths2 : batch['seq_lengths_2'],
                         self.keep_prob : 1,
                         self.weight_decay : weight_decay}
-            _, summary, _ = self.sess.run([self.cost, self.merged, self.pr_re], feed_dict = feedDict)
+            _, summary, _ = self.sess.run([self.cost, self.merged, self.pr_re],
+                feed_dict = feedDict)
             self.test_writer.add_summary(summary, current_iter)
 
             if (current_iter+1) % save_model_every_n_iter == 0:
@@ -229,6 +233,48 @@ class SiameseRNN(object):
         print('\tTrain finished!')
         print("Training time --- %s seconds ---" % (time.time() - start_time))
 
+    ############################################################################
+    def eval_cost(self, data_loader, batch_size, path_to_model):
+        print('\t\t\t\t----==== Evaluating cost ====----')
+        self.load_model(os.path.dirname(path_to_model))
+        data_loader.train.i = 0
+        data_loader.test.i = 0
+        
+
+        def eval(mode):
+
+            result = np.empty([0])
+            while True:
+                try:
+                    if mode=='train':
+                        batch = data_loader.train.next_batch(batch_size)
+                    elif mode=='test':
+                        batch = data_loader.test.next_batch(batch_size)
+                    else:
+                        raise ValueError('error of mode type')
+                except EpochFinished:
+                    break
+                feedDict = {self.question1 : batch['questions_1'],
+                            self.question2 : batch['questions_2'],
+                            self.seq_lengths1 : batch['seq_lengths_1'],
+                            self.seq_lengths2 : batch['seq_lengths_2'],
+                            self.keep_prob : 1}
+
+                res = self.sess.run(self.preds, feed_dict = feedDict)
+                result = np.concatenate([result, res])
+
+            if mode=='train':
+                y_true = data_loader.train_data['is_duplicate']
+            elif mode=='test':
+                y_true = data_loader.test_data['is_duplicate']
+            else:
+                raise ValueError('error of mode type')
+
+            return log_loss(y_true=y_true, y_pred=result)
+
+        print('train loss=', eval(mode='train'))
+        print('test loss=', eval(mode='test'))          
+
 
     #############################################################################################################
     def predict(self, batch_size, data_loader, path_to_save, path_to_model):
@@ -237,12 +283,12 @@ class SiameseRNN(object):
         self.load_model(os.path.dirname(path_to_model))
         
         result = np.empty([0])
+        data_loader.train.i = 0
 
         forward_pass_time = 0
         for current_iter in it.count():
             try:
-                batch = data_loader.next_train_batch(batch_size, shuffle=False,
-                endless_batch=False)
+                batch = data_loader.train.next_batch(batch_size)
             except EpochFinished:
                 break
             feedDict = {self.question1 : batch['questions_1'],
