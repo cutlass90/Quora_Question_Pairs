@@ -52,7 +52,9 @@ class SiameseRNN(object):
         print('Create graph')
         self.input_graph()
 
-        self.out1, self.out2 = self.create_RNN_graph(n_layers=3)
+        self.RNN_out1, self.RNN_out2 = self.create_RNN_graph(n_layers=3)
+
+        self.out1, self.out2 = self.create_FC_graph(self.RNN_out1, self.RNN_out2)
 
         self.preds = tf.exp(-tf.reduce_mean(tf.abs(self.out1 - self.out2), axis=1))
 
@@ -115,28 +117,33 @@ class SiameseRNN(object):
             out2 = self.biRNN(inputs=self.question2,
                 seq_lengths=self.seq_lengths2, n_layers=n_layers, scope='RNN2')
             return out1, out2
-            
-    """
-    # --------------------------------------------------------------------------
-    def create_FC_graph(self, inputs):
-        with tf.variable_scope('FC_graph'):
-            out_FC1 = tf.contrib.layers.fully_connected(
-                inputs=inputs,
-                num_outputs=self.nHiddenFC,
-                activation_fn=tf.nn.elu,
-                weights_initializer=tf.contrib.layers.xavier_initializer(),
-                biases_initializer=tf.zeros_initializer,
-                trainable=True) #b*(n_b+o) x hFC
 
-            out_FC2 = tf.contrib.layers.fully_connected(
-                inputs=out_FC1,
-                num_outputs=self.nHiddenFC,
-                activation_fn=tf.nn.elu,
-                weights_initializer=tf.contrib.layers.xavier_initializer(),
-                biases_initializer=tf.zeros_initializer,
-                trainable=True) #b*(n_b+o) x hFC
-        return out_FC2
-    """
+    # --------------------------------------------------------------------------
+    def FC_out(self, inputs):
+        print('\t\tFC_out')
+        with tf.variable_scope(None, 'FC_out'):
+            out_FC1 = tf.layers.dense(
+                inputs=inputs,
+                units=self.n_hidden_RNN,
+                activation=tf.nn.tanh,
+                kernel_initializer=tf.contrib.layers.xavier_initializer())
+
+            out_FC1_d = tf.nn.dropout(out_FC1, self.keep_prob)
+
+            out_FC2 = tf.layers.dense(
+                inputs=out_FC1_d,
+                units=self.n_hidden_RNN,
+                activation=tf.nn.tanh,
+                kernel_initializer=tf.contrib.layers.xavier_initializer())
+            return out_FC2
+    # --------------------------------------------------------------------------
+    def create_FC_graph(self, out1, out2):
+        print('\tcreate_FC_graph')
+        with tf.variable_scope('FC_graph'):
+            out_FC1 = self.FC_out(out1)
+            out_FC2 = self.FC_out(out2)
+            return out_FC1, out_FC2
+    
 
     # --------------------------------------------------------------------------
     def create_cost_graph(self, preds, targets):
@@ -271,9 +278,10 @@ class SiameseRNN(object):
                 raise ValueError('error of mode type')
 
             return log_loss(y_true=y_true, y_pred=result)
-
+        predicting_time = time.time()
         print('train loss=', eval(mode='train'))
-        print('test loss=', eval(mode='test'))          
+        print('test loss=', eval(mode='test'))
+        print('evaluating_time = ', time.time() - predicting_time)          
 
 
     #############################################################################################################
