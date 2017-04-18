@@ -2,6 +2,7 @@ import os
 import time
 import itertools as it
 import math
+import random
 
 import tensorflow as tf
 import numpy as np
@@ -201,6 +202,12 @@ class SiameseRNN(object):
         for current_iter in tqdm(range(n_iter)):
             learn_rate = a/math.pow((current_iter+1), b)
             batch = data_loader.train.sample_batch(batch_size)
+            if random.choice([True,False]):
+                batch['questions_1'], batch['questions_2'] =\
+                batch['questions_2'], batch['questions_1']
+                batch['seq_lengths_1'], batch['seq_lengths_2'] =\
+                batch['seq_lengths_2'], batch['seq_lengths_1']
+
             feedDict = {self.question1 : batch['questions_1'],
                         self.question2 : batch['questions_2'],
                         self.targets : batch['targets'],
@@ -215,6 +222,11 @@ class SiameseRNN(object):
 
 
             batch = data_loader.test.sample_batch(batch_size)
+            if random.choice([True,False]):
+                batch['questions_1'], batch['questions_2'] =\
+                batch['questions_2'], batch['questions_1']
+                batch['seq_lengths_1'], batch['seq_lengths_2'] =\
+                batch['seq_lengths_2'], batch['seq_lengths_1']
             feedDict = {self.question1 : batch['questions_1'],
                         self.question2 : batch['questions_2'],
                         self.targets : batch['targets'],
