@@ -286,9 +286,10 @@ class SiameseRNN(object):
 
             return tools.log_loss(y_true=y_true, y_pred=result,
                 sample_weight={0:1.309028344, 1:0.472001959})
-
-        print('train loss=', eval(mode='train'))
-        print('test loss=', eval(mode='test'))          
+        test_loss = eval(mode='test')
+        # print('train loss=', eval(mode='train'))
+        print('test loss=', test_loss)          
+        return test_loss
 
 
     #############################################################################################################
