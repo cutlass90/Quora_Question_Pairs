@@ -18,6 +18,7 @@ class SiameseRNN(object):
 
     def __init__(self, embedding_size, n_hidden_RNN=256, do_train=True):
 
+        self.rewight = {0:1.309028344, 1:0.472001959}
         self.embedding_size = embedding_size
         self.n_hidden_RNN = n_hidden_RNN
         self.create_graph()
@@ -143,8 +144,8 @@ class SiameseRNN(object):
     def create_cost_graph(self, preds, targets):
         print('\tcreate_cost_graph')
         preds = tf.clip_by_value(preds, 1e-5, 1-1e-5)
-        self.cross_entropy = -tf.reduce_mean(targets*tf.log(preds)+
-            (1-targets)*tf.log(1-preds))
+        self.cross_entropy = -tf.reduce_mean(self.rewight[1]*targets*tf.log(preds)+
+            self.rewight[0]*(1-targets)*tf.log(1-preds))
         self.L2_loss = self.weight_decay*sum([tf.reduce_mean(tf.square(var))
             for var in tf.trainable_variables()])
 
@@ -248,7 +249,8 @@ class SiameseRNN(object):
     ############################################################################
     def eval_cost(self, data_loader, batch_size, path_to_model):
         print('\t\t\t\t----==== Evaluating cost ====----')
-        self.load_model(os.path.dirname(path_to_model))
+        self.load_model(path_to_model)
+        # self.load_model(os.path.dirname(path_to_model))
         data_loader.train.i = 0
         data_loader.test.i = 0
         
@@ -282,7 +284,8 @@ class SiameseRNN(object):
             else:
                 raise ValueError('error of mode type')
 
-            return log_loss(y_true=y_true, y_pred=result)
+            return tools.log_loss(y_true=y_true, y_pred=result,
+                sample_weight={0:1.309028344, 1:0.472001959})
 
         print('train loss=', eval(mode='train'))
         print('test loss=', eval(mode='test'))          

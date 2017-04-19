@@ -103,7 +103,12 @@ def text_to_wordlist(text, remove_stop_words=True, stem_words=False):
     return(text)
 
 
-
+def log_loss(y_true, y_pred, sample_weight={0:1,1:1}):
+    y_pred = np.maximum(y_pred, 1e-5)
+    y_pred = np.minimum(y_pred, 1-1e-5)
+    loss = y_true*np.log(y_pred)*sample_weight[1] +\
+        (1-y_true)*np.log(1-y_pred)*sample_weight[0]
+    return np.mean(-loss)
 
 class BatchProvider(object):
 
@@ -203,6 +208,7 @@ class DataProvider(object):
 
 #-------------------------------------------------------------------------------
 if __name__ == '__main__':
+    """
     data_provider = DataProvider(path_to_csv='dataset/temp.csv',
         path_to_w2v='~/GoogleNews-vectors-negative300.bin',
         test_size=0.2) 
@@ -216,4 +222,8 @@ if __name__ == '__main__':
         print(i)
         data_provider.train.next_batch(16)
         data_provider.test.next_batch(16)
+    """
+    l = log_loss(y_true=np.array([1,0]), y_pred=np.array([0.001,0.05]),
+        sample_weight={0:3, 1:0.1})
+    print(l)
 
