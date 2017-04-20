@@ -296,7 +296,8 @@ class SiameseRNN(object):
     def predict(self, batch_size, data_loader, path_to_save, path_to_model):
         predicting_time = time.time()
         print('\t\t\t\t----==== Predicting beats ====----')
-        self.load_model(os.path.dirname(path_to_model))
+        self.load_model(path_to_model)
+        # self.load_model(os.path.dirname(path_to_model))
         
         result = np.empty([0])
         data_loader.train.i = 0
